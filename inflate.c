@@ -84,6 +84,7 @@
 #include "inftrees.h"
 #include "inflate.h"
 #include "inffast.h"
+#include "wd_zlib.h"
 
 #ifdef MAKEFIXED
 #  ifndef BUILDFIXED
@@ -241,7 +242,15 @@ z_streamp strm;
 const char *version;
 int stream_size;
 {
-    return inflateInit2_(strm, DEF_WBITS, version, stream_size);
+	int ret;
+
+	ret = hisi_inflateInit2_(strm, DEF_WBITS, version, stream_size);
+	if (!ret) {
+		strm->is_wd = 1;
+		return Z_OK;
+	}
+	strm->is_wd = 0;
+	return inflateInit2_(strm, DEF_WBITS, version, stream_size);
 }
 
 int ZEXPORT inflatePrime(strm, bits, value)
@@ -641,6 +650,9 @@ int flush;
 #endif
     static const unsigned short order[19] = /* permutation of code lengths */
         {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+
+	if (strm->is_wd)
+		return hisi_inflate(strm, flush);
 
     if (inflateStateCheck(strm) || strm->next_out == Z_NULL ||
         (strm->next_in == Z_NULL && strm->avail_in != 0))
@@ -1278,6 +1290,11 @@ int ZEXPORT inflateEnd(strm)
 z_streamp strm;
 {
     struct inflate_state FAR *state;
+
+	if (strm->is_wd) {
+		strm->is_wd = 0;
+		return hisi_inflateEnd(strm);
+	}
     if (inflateStateCheck(strm))
         return Z_STREAM_ERROR;
     state = (struct inflate_state FAR *)strm->state;

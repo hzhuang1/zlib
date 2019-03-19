@@ -50,6 +50,7 @@
 /* @(#) $Id$ */
 
 #include "deflate.h"
+#include "wd_zlib.h"
 
 const char deflate_copyright[] =
    " deflate 1.2.11 Copyright 1995-2017 Jean-loup Gailly and Mark Adler ";
@@ -231,6 +232,16 @@ int ZEXPORT deflateInit_(strm, level, version, stream_size)
     const char *version;
     int stream_size;
 {
+	int ret;
+
+	ret = hisi_deflateInit2_(strm, level, Z_DEFLATED, MAX_WBITS,
+				 DEF_MEM_LEVEL, Z_DEFAULT_STRATEGY,
+				 version, stream_size);
+	if (!ret) {
+		strm->is_wd = 1;
+		return Z_OK;
+	}
+	strm->is_wd = 0;
     return deflateInit2_(strm, level, Z_DEFLATED, MAX_WBITS, DEF_MEM_LEVEL,
                          Z_DEFAULT_STRATEGY, version, stream_size);
     /* To do: ignore strm->next_in if we use it as window */
@@ -766,6 +777,8 @@ int ZEXPORT deflate (strm, flush)
 {
     int old_flush; /* value of flush param for previous deflate call */
     deflate_state *s;
+	if (strm->is_wd)
+		return hisi_deflate(strm, flush);
 
     if (deflateStateCheck(strm) || flush > Z_BLOCK || flush < 0) {
         return Z_STREAM_ERROR;
@@ -1077,6 +1090,11 @@ int ZEXPORT deflateEnd (strm)
     z_streamp strm;
 {
     int status;
+
+	if (strm->is_wd) {
+		strm->is_wd = 0;
+		return hisi_deflateEnd(strm);
+	}
 
     if (deflateStateCheck(strm)) return Z_STREAM_ERROR;
 

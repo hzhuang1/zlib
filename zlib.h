@@ -102,7 +102,8 @@ typedef struct z_stream_s {
     int     data_type;  /* best guess about the data type: binary or text
                            for deflate, or the decoding state for inflate */
     uLong   adler;      /* Adler-32 or CRC-32 value of the uncompressed data */
-    uLong   reserved;   /* reserved for future use */
+    void   *reserved;   /* reserved for future use */
+    int    is_wd;
 } z_stream;
 
 typedef z_stream FAR *z_streamp;
