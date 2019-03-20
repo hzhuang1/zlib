@@ -35,6 +35,8 @@ struct hisi_qm_priv {
 
 #define Z_OK            0
 #define Z_STREAM_END    1
+#define Z_STREAM_NULL   3
+#define Z_STREAM_NO_FINSH   4
 #define Z_ERRNO (-1)
 
 #define STREAM_CHUNK_OUT (64*1024)
@@ -91,9 +93,49 @@ int hisi_deflateInit_(z_stream *zstrm, int level,
 				  version, stream_size);
 }
 
+int hisi_flowctl(z_stream *zstrm, int flush)
+{
+	int ret = 0;
+	struct hw_ctl *hw_ctl = (struct hw_ctl *)zstrm->reserved;
+
+	if (hw_ctl->flowctl == 0) {
+		ret = hw_send_and_recv(zstrm, flush);
+		if (ret == Z_STREAM_NO_FINSH) {
+			zstrm->avail_in = 0;
+			return Z_OK;
+		}
+		if (ret == Z_STREAM_NULL) {
+			zstrm->avail_in = 0;
+			return Z_STREAM_END;
+		}
+		hw_ctl->next_out_temp = hw_ctl->next_out;
+		hw_ctl->outlen = stream_chunk - hw_ctl->avail_out;
+	}
+	if (hw_ctl->outlen > zstrm->avail_out) {
+		/* need to copy*/
+		memcpy(zstrm->next_out, hw_ctl->next_out_temp,
+		       zstrm->avail_out);
+		hw_ctl->outlen -= zstrm->avail_out;
+		hw_ctl->next_out_temp += zstrm->avail_out;
+		zstrm->avail_out = 0;
+		hw_ctl->flowctl = 1;
+	} else if (hw_ctl->outlen > 0 && hw_ctl->outlen <= zstrm->avail_out) {
+		/* need to copy*/
+		memcpy(zstrm->next_out, hw_ctl->next_out_temp, hw_ctl->outlen);
+		zstrm->avail_out -= hw_ctl->outlen;
+		zstrm->avail_in = 0;
+		hw_ctl->flowctl = 0;
+	}
+
+	if (flush == Z_FINISH)
+		ret = Z_STREAM_END;
+
+	return ret;
+}
+
 int hisi_deflate(z_stream *zstrm, int flush)
 {
-	return hw_send_and_recv(zstrm, flush);
+	return hisi_flowctl(zstrm, flush);
 }
 
 int hisi_deflateEnd(z_stream *zstrm)
@@ -130,7 +172,7 @@ int hisi_inflateInit_(z_stream *zstrm, const char *version, int stream_size)
 
 int hisi_inflate(z_stream *zstrm, int flush)
 {
-	return hw_send_and_recv(zstrm, flush);
+	return hisi_flowctl(zstrm, flush);
 }
 
 int hisi_inflateEnd(z_stream *zstrm)
@@ -274,12 +316,11 @@ static int append_store_block(z_stream *zstrm, int flush)
 	__u32 checksum = hw_ctl->checksum;
 	__u32 isize = hw_ctl->isize;
 
+	if (flush != Z_FINISH)
+		return Z_STREAM_NO_FINSH;
 	memcpy(zstrm->next_out, store_block, 5);
 	zstrm->total_out += 5;
 	zstrm->avail_out -= 5;
-	if (flush != Z_FINISH)
-		return Z_STREAM_END;
-
 	if (hw_ctl->alg_type == HW_ZLIB) { /*if zlib, ADLER32*/
 		checksum = (__u32) cpu_to_be32(checksum);
 		memcpy(zstrm->next_out + 5, &checksum, 4);
@@ -296,7 +337,7 @@ static int append_store_block(z_stream *zstrm, int flush)
 		fprintf(stderr, "in append store block, wrong alg type %d.\n",
 			hw_ctl->alg_type);
 
-	return Z_STREAM_END;
+	return Z_STREAM_NULL;
 }
 
 static int hw_send_and_recv(z_stream *zstrm, int flush)
@@ -315,7 +356,8 @@ static int hw_send_and_recv(z_stream *zstrm, int flush)
 		fputs("alloc msg fail!\n", stderr);
 		goto msg_free;
 	}
-
+	hw_ctl->avail_in = zstrm->avail_in;
+	hw_ctl->avail_out = stream_chunk;
 	memcpy(hw_ctl->next_in, zstrm->next_in, zstrm->avail_in);/* need copy */
 	stream_mode = STATEFUL;
 	stream_new = hw_ctl->stream_pos;
@@ -323,12 +365,12 @@ static int hw_send_and_recv(z_stream *zstrm, int flush)
 	if (hw_ctl->stream_pos == STREAM_NEW) {
 		if (hw_ctl->op_type == HW_DEFLATE) {
 			memcpy(zstrm->next_out, zlib_head, ZLIB_HEAD_SIZE);
-			zstrm->total_out = ZLIB_HEAD_SIZE;
+			hw_ctl->total_out = ZLIB_HEAD_SIZE;
 			zstrm->avail_out -= ZLIB_HEAD_SIZE;
 			zstrm->next_out += ZLIB_HEAD_SIZE;
 		} else {
 			hw_ctl->next_in_pa += ZLIB_HEAD_SIZE;
-			zstrm->avail_in -= ZLIB_HEAD_SIZE;
+			hw_ctl->avail_in -= ZLIB_HEAD_SIZE;
 		}
 		hw_ctl->stream_pos = STREAM_OLD;
 	}
@@ -340,8 +382,8 @@ static int hw_send_and_recv(z_stream *zstrm, int flush)
 	msg->source_addr_h = (__u64)hw_ctl->next_in_pa >> 32;
 	msg->dest_addr_l = (__u64)hw_ctl->next_out_pa & 0xffffffff;
 	msg->dest_addr_h = (__u64)hw_ctl->next_out_pa >> 32;
-	msg->input_data_length = zstrm->avail_in;
-	msg->dest_avail_out = zstrm->avail_out;
+	msg->input_data_length = hw_ctl->avail_in;
+	msg->dest_avail_out = hw_ctl->avail_out;
 	msg->stream_ctx_addr_l = (__u64)hw_ctl->ctx_buf & 0xffffffff;
 	msg->stream_ctx_addr_h = (__u64)hw_ctl->ctx_buf >> 32;
 	msg->ctx_dw0 = hw_ctl->ctx_dw0;
@@ -369,21 +411,19 @@ recv_again:
 	type = recv_msg->dw9 & 0xff;
 	SYS_ERR_COND(status != 0 && status != 0x0d && status != 0x13,
 		     "bad status (s=%d, t=%d)\n", status, type);
-	zstrm->avail_out -= recv_msg->produced;
-	zstrm->total_out += recv_msg->produced;
-	zstrm->avail_in -= recv_msg->consumed;
+	hw_ctl->avail_out -= recv_msg->produced;
+	hw_ctl->total_out += recv_msg->produced;
+	hw_ctl->avail_in -= recv_msg->consumed;
 	hw_ctl->ctx_dw0 = recv_msg->ctx_dw0;
 	hw_ctl->ctx_dw1 = recv_msg->ctx_dw1;
 	hw_ctl->ctx_dw2 = recv_msg->ctx_dw2;
 	hw_ctl->isize = recv_msg->isize;
 	hw_ctl->checksum = recv_msg->checksum;
-	/* need to copy*/
-	memcpy(zstrm->next_out, hw_ctl->next_out, recv_msg->produced);
-	if (zstrm->avail_in > 0) {
+	if (hw_ctl->avail_in > 0) {
 		/* zstrm->avail_out = 0; */
 		hw_ctl->next_in_pa +=  recv_msg->consumed;
 	}
-	if (zstrm->avail_in == 0)
+	if (hw_ctl->avail_in == 0)
 		hw_ctl->next_in_pa = hw_ctl->temp_in_pa;
 
 	if (ret == 0 && flush == Z_FINISH)

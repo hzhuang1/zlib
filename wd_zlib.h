@@ -12,8 +12,13 @@ struct hw_ctl {
 	int alg_type;
 	int op_type;
 	int stream_pos;
+	int outlen;
+	int avail_in;
+	int avail_out;
+	int total_out;
 	void *next_in;
 	void *next_out;
+	void *next_out_temp;
 	void *ctx_buf;
 	int ctx_dw0;
 	int ctx_dw1;
@@ -24,6 +29,7 @@ struct hw_ctl {
 	void *ss_buf;
 	int isize;
 	int checksum;
+	int flowctl;
 };
 
 extern int hisi_deflateInit2_(z_stream *zstrm, int level, int method,
