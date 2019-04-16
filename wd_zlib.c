@@ -188,17 +188,16 @@ static int hw_init(z_stream *zstrm, int alg_type, int comp_optype)
 	struct hisi_qm_priv *priv;
 	struct hw_ctl *hw_ctl;
 
-	hw_ctl = malloc(sizeof(struct hw_ctl));
+	hw_ctl = calloc(1, sizeof(struct hw_ctl));
 	if (!hw_ctl) {
 		fputs("alloc hw_ctl fail!\n", stderr);
 		return -1;
 	}
-	hw_ctl->q = malloc(sizeof(struct wd_queue));
+	hw_ctl->q = calloc(1, sizeof(struct wd_queue));
 	if (!hw_ctl->q) {
 		fputs("alloc hw_ctl->q fail!\n", stderr);
 		goto hwctl_free;
 	}
-	memset((void *)hw_ctl->q, 0, sizeof(struct wd_queue));
 
 	switch (alg_type) {
 	case 0:
@@ -351,7 +350,7 @@ static int hw_send_and_recv(z_stream *zstrm, int flush)
 	if (zstrm->avail_in == 0)
 		return append_store_block(zstrm, flush);
 
-	msg = malloc(sizeof(*msg));
+	msg = calloc(1, sizeof(*msg));
 	if (!msg) {
 		fputs("alloc msg fail!\n", stderr);
 		goto msg_free;
@@ -374,7 +373,6 @@ static int hw_send_and_recv(z_stream *zstrm, int flush)
 		}
 		hw_ctl->stream_pos = STREAM_OLD;
 	}
-	memset((void *)msg, 0, sizeof(*msg));
 	msg->dw9 = hw_ctl->alg_type;
 	msg->dw7 |= ((stream_new << 2 | stream_mode << 1 |
 		    flush_type)) << STREAM_FLUSH_SHIFT;
