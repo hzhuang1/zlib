@@ -130,6 +130,8 @@ int hisi_flowctl(z_stream *zstrm, int flush)
 		hw_ctl->flowctl = 0;
 	}
 
+	if (zstrm->avail_in == 0)
+		ret = Z_STREAM_END;
 	if (flush == Z_FINISH)
 		ret = Z_STREAM_END;
 
