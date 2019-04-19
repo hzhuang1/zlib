@@ -81,6 +81,9 @@ int hisi_deflateInit2_(z_stream *zstrm, int level, int method, int windowBits,
 	else
 		alg_type = ZLIB;
 
+	zstrm->total_in = 0;
+	zstrm->total_out = 0;
+
 	return hw_init(zstrm, alg_type, HW_DEFLATE);
 
 }
@@ -161,6 +164,9 @@ int hisi_inflateInit2_(z_stream *zstrm, int windowBits,
 		alg_type = ZLIB;
 	if (wrap & 0x02)
 		alg_type = GZIP;
+
+	zstrm->total_in = 0;
+	zstrm->total_out = 0;
 
 	return hw_init(zstrm, alg_type, HW_INFLATE);
 }
@@ -367,9 +373,11 @@ static int hw_send_and_recv(z_stream *zstrm, int flush)
 			hw_ctl->total_out = ZLIB_HEAD_SIZE;
 			zstrm->avail_out -= ZLIB_HEAD_SIZE;
 			zstrm->next_out += ZLIB_HEAD_SIZE;
+			zstrm->total_out += ZLIB_HEAD_SIZE;
 		} else {
 			hw_ctl->next_in_pa += ZLIB_HEAD_SIZE;
 			hw_ctl->avail_in -= ZLIB_HEAD_SIZE;
+			zstrm->total_in += ZLIB_HEAD_SIZE;
 		}
 		hw_ctl->stream_pos = STREAM_OLD;
 	}
@@ -417,6 +425,8 @@ recv_again:
 	hw_ctl->ctx_dw2 = recv_msg->ctx_dw2;
 	hw_ctl->isize = recv_msg->isize;
 	hw_ctl->checksum = recv_msg->checksum;
+	zstrm->total_in += recv_msg->consumed;
+	zstrm->total_out += recv_msg->produced;
 	if (hw_ctl->avail_in > 0) {
 		/* zstrm->avail_out = 0; */
 		hw_ctl->next_in_pa +=  recv_msg->consumed;
