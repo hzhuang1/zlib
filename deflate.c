@@ -257,7 +257,7 @@ int ZEXPORT deflateInit2_(strm, level, method, windowBits, memLevel, strategy,
 
     int ret;
 
-    ret = hisi_deflateInit2_(strm, level, Z_DEFLATED, MAX_WBITS,
+    ret = hisi_deflateInit2_(strm, level, Z_DEFLATED, windowBits,
 			 DEF_MEM_LEVEL, Z_DEFAULT_STRATEGY,
 			 version, stream_size);
     if (!ret) {
