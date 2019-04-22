@@ -232,16 +232,6 @@ int ZEXPORT deflateInit_(strm, level, version, stream_size)
     const char *version;
     int stream_size;
 {
-	int ret;
-
-	ret = hisi_deflateInit2_(strm, level, Z_DEFLATED, MAX_WBITS,
-				 DEF_MEM_LEVEL, Z_DEFAULT_STRATEGY,
-				 version, stream_size);
-	if (!ret) {
-		strm->is_wd = 1;
-		return Z_OK;
-	}
-	strm->is_wd = 0;
     return deflateInit2_(strm, level, Z_DEFLATED, MAX_WBITS, DEF_MEM_LEVEL,
                          Z_DEFAULT_STRATEGY, version, stream_size);
     /* To do: ignore strm->next_in if we use it as window */
@@ -264,6 +254,18 @@ int ZEXPORT deflateInit2_(strm, level, method, windowBits, memLevel, strategy,
     static const char my_version[] = ZLIB_VERSION;
 
     ushf *overlay;
+
+    int ret;
+
+    ret = hisi_deflateInit2_(strm, level, Z_DEFLATED, MAX_WBITS,
+			 DEF_MEM_LEVEL, Z_DEFAULT_STRATEGY,
+			 version, stream_size);
+    if (!ret) {
+	strm->is_wd = 1;
+	return Z_OK;
+    }
+    strm->is_wd = 0;
+
     /* We overlay pending_buf and d_buf+l_buf. This works since the average
      * output size for (length,distance) codes is <= 24 bits.
      */
