@@ -28,8 +28,8 @@ struct hisi_qm_priv {
 	__u16 op_type;
 };
 
-#define ZLIB 0
-#define GZIP 1
+#define ALG_ZLIB 0
+#define ALG_GZIP 1
 
 #define HW_CTX_SIZE (64*1024)
 
@@ -70,16 +70,14 @@ int hisi_deflateInit2_(z_stream *zstrm, int level, int method, int windowBits,
 		wrap = 0;
 		windowBits = -windowBits;
 	}
-#ifdef GZIP
 	else if (windowBits > 15) {
 		wrap = 2;		/* write gzip wrapper instead */
 		windowBits -= 16;
 	}
-#endif
 	if (wrap & 0x02)
-		alg_type = GZIP;
+		alg_type = ALG_GZIP;
 	else
-		alg_type = ZLIB;
+		alg_type = ALG_ZLIB;
 
 	zstrm->total_in = 0;
 	zstrm->total_out = 0;
@@ -163,9 +161,9 @@ int hisi_inflateInit2_(z_stream *zstrm, int windowBits,
 
 	}
 	if (wrap & 0x01)
-		alg_type = ZLIB;
+		alg_type = ALG_ZLIB;
 	if (wrap & 0x02)
-		alg_type = GZIP;
+		alg_type = ALG_GZIP;
 
 	zstrm->total_in = 0;
 	zstrm->total_out = 0;
