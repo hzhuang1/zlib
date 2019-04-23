@@ -96,40 +96,45 @@ int hisi_deflateInit_(z_stream *zstrm, int level,
 
 int hisi_flowctl(z_stream *zstrm, int flush)
 {
-	int ret = 0;
+	int ret = Z_OK;
 	struct hw_ctl *hw_ctl = (struct hw_ctl *)zstrm->reserved;
 
-	if (hw_ctl->flowctl == 0) {
-		ret = hw_send_and_recv(zstrm, flush);
-		if (ret == Z_STREAM_NO_FINSH) {
-			zstrm->avail_in = 0;
-			return Z_OK;
+	if (zstrm->avail_in) {
+		if (hw_ctl->flowctl == 0) {
+			ret = hw_send_and_recv(zstrm, flush);
+			if (ret == Z_STREAM_NO_FINSH) {
+				zstrm->avail_in = 0;
+				return Z_OK;
+			}
+			if (ret == Z_STREAM_NULL) {
+				zstrm->avail_in = 0;
+				return Z_STREAM_END;
+			}
+			hw_ctl->next_out_temp = hw_ctl->next_out;
+			hw_ctl->outlen = stream_chunk - hw_ctl->avail_out;
 		}
-		if (ret == Z_STREAM_NULL) {
+		if (hw_ctl->outlen > zstrm->avail_out) {
+			/* need to copy*/
+			memcpy(zstrm->next_out, hw_ctl->next_out_temp,
+			       zstrm->avail_out);
+			hw_ctl->outlen -= zstrm->avail_out;
+			hw_ctl->next_out_temp += zstrm->avail_out;
+			zstrm->avail_out = 0;
+			hw_ctl->flowctl = 1;
+		} else if (hw_ctl->outlen > 0 &&
+			   hw_ctl->outlen <= zstrm->avail_out) {
+			/* need to copy*/
+			memcpy(zstrm->next_out,
+			       hw_ctl->next_out_temp,
+			       hw_ctl->outlen);
+			zstrm->avail_out -= hw_ctl->outlen;
 			zstrm->avail_in = 0;
-			return Z_STREAM_END;
+			hw_ctl->flowctl = 0;
 		}
-		hw_ctl->next_out_temp = hw_ctl->next_out;
-		hw_ctl->outlen = stream_chunk - hw_ctl->avail_out;
-	}
-	if (hw_ctl->outlen > zstrm->avail_out) {
-		/* need to copy*/
-		memcpy(zstrm->next_out, hw_ctl->next_out_temp,
-		       zstrm->avail_out);
-		hw_ctl->outlen -= zstrm->avail_out;
-		hw_ctl->next_out_temp += zstrm->avail_out;
-		zstrm->avail_out = 0;
-		hw_ctl->flowctl = 1;
-	} else if (hw_ctl->outlen > 0 && hw_ctl->outlen <= zstrm->avail_out) {
-		/* need to copy*/
-		memcpy(zstrm->next_out, hw_ctl->next_out_temp, hw_ctl->outlen);
-		zstrm->avail_out -= hw_ctl->outlen;
-		zstrm->avail_in = 0;
-		hw_ctl->flowctl = 0;
+	} else {
+		ret = Z_STREAM_END;
 	}
 
-	if (zstrm->avail_in == 0)
-		ret = Z_STREAM_END;
 	if (flush == Z_FINISH)
 		ret = Z_STREAM_END;
 
