@@ -119,6 +119,7 @@ int hisi_flowctl(z_stream *zstrm, int flush)
 			       zstrm->avail_out);
 			hw_ctl->outlen -= zstrm->avail_out;
 			hw_ctl->next_out_temp += zstrm->avail_out;
+			zstrm->next_out += zstrm->avail_out;
 			zstrm->avail_out = 0;
 			hw_ctl->flowctl = 1;
 		} else if (hw_ctl->outlen > 0 &&
@@ -127,6 +128,7 @@ int hisi_flowctl(z_stream *zstrm, int flush)
 			memcpy(zstrm->next_out,
 			       hw_ctl->next_out_temp,
 			       hw_ctl->outlen);
+			zstrm->next_out += hw_ctl->outlen;
 			zstrm->avail_out -= hw_ctl->outlen;
 			zstrm->avail_in = 0;
 			hw_ctl->flowctl = 0;
