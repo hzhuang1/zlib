@@ -9,27 +9,29 @@
 
 struct hw_ctl {
 	struct wd_queue *q;
+	unsigned empty_in : 1;		/* IN buffer is empty */
+	unsigned empty_out : 1;		/* OUT buffer is empty */
+	unsigned full_in : 1;		/* IN buffer is ready */
+	unsigned pending_out : 1;	/* pending data for OUT buffer */
+	unsigned stream_pos : 1;	/* STREAM_NEW or STREAM_OLD */
+	unsigned stream_end : 1;
 	int alg_type;
 	int op_type;
-	int stream_pos;
-	int outlen;
-	int avail_in;
+	int avail_in;			/* number of bytes availiable in IN buffer */
 	int avail_out;
-	int total_out;
+	int inlen;			/* data cached in IN buffer */
+	int outlen;			/* data cached in OUT buffer */
+	void *in;
+	void *out;
+	void *in_pa;
+	void *out_pa;
 	void *next_in;
 	void *next_out;
-	void *next_out_temp;
 	void *ctx_buf;
 	int ctx_dw0;
 	int ctx_dw1;
 	int ctx_dw2;
-	void *next_in_pa;   /* next input byte */
-	void *temp_in_pa;   /* temp input byte */
-	void *next_out_pa;  /* next output byte should be put there */
 	void *ss_buf;
-	int isize;
-	int checksum;
-	int flowctl;
 };
 
 extern int hisi_deflateInit2_(z_stream *zstrm, int level, int method,

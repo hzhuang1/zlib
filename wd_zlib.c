@@ -7,10 +7,10 @@
 #include <assert.h>
 #include "wd_zlib.h"
 
-#define DEFLATE 0
-#define INFLATE 1
+#define DEFLATE			0
+#define INFLATE			1
 
-#define ASIZE (2*512*1024)	/*512K*/
+#define ASIZE			(2*512*1024)	/*512K*/
 
 #define SYS_ERR_COND(cond, msg, ...) \
 do { \
@@ -23,23 +23,20 @@ do { \
 	} \
 } while (0)
 
-struct hisi_qm_priv {
-	__u16 sqe_size;
-	__u16 op_type;
-};
+#define ALG_ZLIB		0
+#define ALG_GZIP		1
 
-#define ALG_ZLIB 0
-#define ALG_GZIP 1
+#define HW_CTX_SIZE		(64*1024)
 
-#define HW_CTX_SIZE (64*1024)
+#define Z_OK			0
+#define Z_STREAM_END		1
+#define Z_STREAM_NULL		3
+#define Z_STREAM_NO_FINSH	4
+#define Z_ERRNO			(-1)
 
-#define Z_OK            0
-#define Z_STREAM_END    1
-#define Z_STREAM_NULL   3
-#define Z_STREAM_NO_FINSH   4
-#define Z_ERRNO (-1)
+#define STREAM_CHUNK_OUT	(64*1024)
 
-#define STREAM_CHUNK_OUT (64*1024)
+#define MIN_STREAM_CHUNK	512
 
 #define swab32(x) \
 	((((x) & 0x000000ff) << 24) | \
@@ -47,16 +44,25 @@ struct hisi_qm_priv {
 	(((x) & 0x00ff0000) >>  8) | \
 	(((x) & 0xff000000) >> 24))
 
-#define cpu_to_be32(x) swab32(x)
+#define cpu_to_be32(x)		swab32(x)
+
+#define HZLIB_VERSION		"1.2.11"
+#define ZLIB_HEAD_SIZE		2
+#define GZIP_HEAD_SIZE		10
+#define GZIP_TAIL_SIZE		8
+
+struct hisi_qm_priv {
+	__u16 sqe_size;
+	__u16 op_type;
+};
 
 static int hw_init(z_stream *zstrm, int alg_type, int comp_optype);
 static void hw_end(z_stream *zstrm);
 static int hw_send_and_recv(z_stream *zstrm, int flush);
 
-#define HZLIB_VERSION "1.2.11"
-#define ZLIB_HEAD_SIZE 2
-
 const static char zlib_head[ZLIB_HEAD_SIZE] = {0x78, 0x9c};
+const static char gzip_head[GZIP_HEAD_SIZE] = {0x1f, 0x8b, 0x08, 0x00, 0x00,
+					       0x00, 0x00, 0x00, 0x00, 0x03};
 static int stream_chunk = 1024*64;
 
 int hisi_deflateInit2_(z_stream *zstrm, int level, int method, int windowBits,
@@ -94,53 +100,110 @@ int hisi_deflateInit_(z_stream *zstrm, int level,
 				  version, stream_size);
 }
 
-int hisi_flowctl(z_stream *zstrm, int flush)
+int hisi_reset_hw_ctl(struct hw_ctl *hw_ctl)
 {
-	int ret = Z_OK;
+	hw_ctl->stream_end = 0;
+	hw_ctl->stream_pos = STREAM_NEW;
+	hw_ctl->empty_in = hw_ctl->empty_out = 1;
+	hw_ctl->full_in = hw_ctl->pending_out = 0;
+	hw_ctl->avail_in = hw_ctl->avail_out = stream_chunk;
+	hw_ctl->inlen = hw_ctl->outlen = 0;
+	hw_ctl->next_in = hw_ctl->in;
+	hw_ctl->next_out = hw_ctl->out;
+}
+
+static inline void hisi_load_from_stream(z_stream *zstrm, int length)
+{
 	struct hw_ctl *hw_ctl = (struct hw_ctl *)zstrm->reserved;
 
-	if (zstrm->avail_in) {
-		if (hw_ctl->flowctl == 0) {
-			ret = hw_send_and_recv(zstrm, flush);
-			if (ret == Z_STREAM_NO_FINSH) {
-				zstrm->avail_in = 0;
-				return Z_OK;
-			}
-			if (ret == Z_STREAM_NULL) {
-				zstrm->avail_in = 0;
-				return Z_STREAM_END;
-			}
-			hw_ctl->next_out_temp = hw_ctl->next_out;
-			hw_ctl->outlen = stream_chunk - hw_ctl->avail_out;
-		}
-		if (hw_ctl->outlen > zstrm->avail_out) {
-			/* need to copy*/
-			memcpy(zstrm->next_out, hw_ctl->next_out_temp,
-			       zstrm->avail_out);
-			hw_ctl->outlen -= zstrm->avail_out;
-			hw_ctl->next_out_temp += zstrm->avail_out;
-			zstrm->next_out += zstrm->avail_out;
-			zstrm->avail_out = 0;
-			hw_ctl->flowctl = 1;
-		} else if (hw_ctl->outlen > 0 &&
-			   hw_ctl->outlen <= zstrm->avail_out) {
-			/* need to copy*/
-			memcpy(zstrm->next_out,
-			       hw_ctl->next_out_temp,
-			       hw_ctl->outlen);
-			zstrm->next_out += hw_ctl->outlen;
-			zstrm->avail_out -= hw_ctl->outlen;
-			zstrm->avail_in = 0;
-			hw_ctl->flowctl = 0;
-		}
-	} else {
-		ret = Z_STREAM_END;
+	memcpy(hw_ctl->next_in, zstrm->next_in, length);
+	hw_ctl->next_in  += length;
+	hw_ctl->inlen    += length;
+	hw_ctl->avail_in -= length;
+	zstrm->next_in   += length;
+	zstrm->total_in  += length;
+}
+
+int hisi_flowctl(z_stream *zstrm, int flush)
+{
+	struct hw_ctl *hw_ctl = (struct hw_ctl *)zstrm->reserved;
+	int len, offset;
+
+	if (hw_ctl->stream_pos && hw_ctl->empty_in) {
+		zstrm->total_in = 0;
+		zstrm->total_out = 0;
 	}
-
-	if (flush == Z_FINISH)
-		ret = Z_STREAM_END;
-
-	return ret;
+	if (hw_ctl->pending_out && hw_ctl->outlen && zstrm->avail_out) {
+		/* need move data out of OUT buffer */
+		if (hw_ctl->outlen > zstrm->avail_out) {
+			len = zstrm->avail_out;
+			hw_ctl->empty_out = 0;
+			hw_ctl->pending_out = 1;
+		} else {
+			len = hw_ctl->outlen;
+			hw_ctl->empty_out = 1;
+			hw_ctl->pending_out = 0;
+		}
+		memcpy(zstrm->next_out, hw_ctl->next_out - hw_ctl->outlen, len);
+		hw_ctl->outlen = hw_ctl->outlen - len;
+		zstrm->avail_out = zstrm->avail_out - len;
+		zstrm->next_out += len;
+		/* zstream OUT buffer is full */
+		if (hw_ctl->pending_out)
+			return Z_OK;
+		else if (hw_ctl->stream_end) {
+			hisi_reset_hw_ctl(hw_ctl);
+			return Z_STREAM_END;
+		}
+	}
+	if (!zstrm->avail_in && hw_ctl->inlen && (flush != Z_FINISH)) {
+		/* it must be the last frame */
+		flush = Z_FINISH;
+	}
+	offset = hw_ctl->next_in - hw_ctl->in;
+	if (!hw_ctl->full_in && (zstrm->avail_in || offset)) {
+		if ((zstrm->avail_in + offset) > stream_chunk) {
+			if (hw_ctl->avail_in > stream_chunk) {
+				fprintf(stderr, "too much data in IN buffer\n");
+				return Z_ERRNO;
+			}
+			len = stream_chunk - offset;
+			if (zstrm->avail_in && (zstrm->avail_in < len)) {
+				hisi_load_from_stream(zstrm, zstrm->avail_in);
+				zstrm->avail_in = 0;
+			} else if (zstrm->avail_in > len) {
+				hisi_load_from_stream(zstrm, len);
+				zstrm->avail_in -= len;
+			}
+		} else {
+			hisi_load_from_stream(zstrm, zstrm->avail_in);
+			zstrm->avail_in = 0;
+		}
+		if (hw_ctl->inlen < MIN_STREAM_CHUNK) {
+			hw_ctl->empty_in = 0;
+			hw_ctl->full_in = 0;
+		} else {
+			hw_ctl->empty_in = 0;
+			hw_ctl->full_in = 1;
+		}
+	}
+	/* cache data in IN buffer and wait for next operation */
+	if (!hw_ctl->full_in && (flush != Z_FINISH))
+		return Z_OK;
+	if (hw_ctl->stream_pos && (hw_ctl->op_type == HW_INFLATE)) {
+		if (hw_ctl->alg_type == HW_GZIP)
+			hw_ctl->inlen -= GZIP_HEAD_SIZE;
+		else
+			hw_ctl->inlen -= ZLIB_HEAD_SIZE;
+	}
+	if (!hw_ctl->empty_in && (flush == Z_FINISH) && hw_ctl->avail_out)
+		return hw_send_and_recv(zstrm, flush);
+	else if (hw_ctl->full_in && hw_ctl->avail_out)
+		return hw_send_and_recv(zstrm, flush);
+	else if (hw_ctl->empty_in && hw_ctl->empty_out && (flush == Z_FINISH))
+		return Z_OK;
+	fprintf(stderr, "wrong case in hisi_flowctl()\n");
+	return Z_ERRNO;
 }
 
 int hisi_deflate(z_stream *zstrm, int flush)
@@ -252,12 +315,10 @@ static int hw_init(z_stream *zstrm, int alg_type, int comp_optype)
 	if (ret)
 		goto buf_free;
 
-	hw_ctl->next_in = NULL;
-	hw_ctl->next_out = NULL;
-
-	hw_ctl->next_in = smm_alloc(hw_ctl->ss_buf, ASIZE);
-	hw_ctl->next_out = smm_alloc(hw_ctl->ss_buf, ASIZE);
+	hw_ctl->in = smm_alloc(hw_ctl->ss_buf, ASIZE);
+	hw_ctl->out = smm_alloc(hw_ctl->ss_buf, ASIZE);
 	hw_ctl->ctx_buf = smm_alloc(hw_ctl->ss_buf, HW_CTX_SIZE);
+	hisi_reset_hw_ctl(hw_ctl);
 
 	if (!hw_ctl->next_in || !hw_ctl->next_out) {
 		dbg("not enough data ss_region memory for cache 1 (bs=%d)\n",
@@ -266,19 +327,38 @@ static int hw_init(z_stream *zstrm, int alg_type, int comp_optype)
 	}
 
 	if (hw_ctl->q->dev_flags & UACCE_DEV_NOIOMMU) {
-		hw_ctl->next_in_pa = wd_get_pa_from_va(hw_ctl->q,
-						       hw_ctl->next_in);
-		hw_ctl->next_out_pa = wd_get_pa_from_va(hw_ctl->q,
-							hw_ctl->next_out);
+		hw_ctl->in_pa = wd_get_pa_from_va(hw_ctl->q, hw_ctl->in);
+		hw_ctl->out_pa = wd_get_pa_from_va(hw_ctl->q, hw_ctl->out);
 		hw_ctl->ctx_buf = wd_get_pa_from_va(hw_ctl->q, hw_ctl->ctx_buf);
 	} else {
-		hw_ctl->next_in_pa = hw_ctl->next_in;
-		hw_ctl->next_out_pa = hw_ctl->next_out;
+		hw_ctl->in_pa = hw_ctl->in;
+		hw_ctl->out_pa = hw_ctl->out;
 	}
 
-	hw_ctl->temp_in_pa = hw_ctl->next_in_pa;
-	hw_ctl->stream_pos = STREAM_NEW;
 	zstrm->reserved = hw_ctl;
+
+	if (hw_ctl->op_type == HW_DEFLATE) {
+		if (hw_ctl->alg_type == HW_GZIP) {
+			memcpy(hw_ctl->next_out,
+			       gzip_head,
+			       GZIP_HEAD_SIZE);
+			hw_ctl->next_out += GZIP_HEAD_SIZE;
+			hw_ctl->avail_out -= GZIP_HEAD_SIZE;
+			hw_ctl->outlen += GZIP_HEAD_SIZE;
+		} else {
+			memcpy(hw_ctl->next_out,
+			       zlib_head,
+			       ZLIB_HEAD_SIZE);
+			hw_ctl->next_out += ZLIB_HEAD_SIZE;
+			hw_ctl->avail_out -= ZLIB_HEAD_SIZE;
+			hw_ctl->outlen += ZLIB_HEAD_SIZE;
+		}
+		hw_ctl->pending_out = 0;
+		hw_ctl->empty_out = 0;
+	} else {
+		hw_ctl->full_in = 0;
+		hw_ctl->empty_in = 0;
+	}
 
 	return Z_OK;
 buf_free:
@@ -310,102 +390,37 @@ static void hw_end(z_stream *zstrm)
 	free(hw_ctl);
 }
 
-static unsigned int bit_reverse(register unsigned int x)
-{
-	x = (((x & 0xaaaaaaaa) >> 1) | ((x & 0x55555555) << 1));
-	x = (((x & 0xcccccccc) >> 2) | ((x & 0x33333333) << 2));
-	x = (((x & 0xf0f0f0f0) >> 4) | ((x & 0x0f0f0f0f) << 4));
-	x = (((x & 0xff00ff00) >> 8) | ((x & 0x00ff00ff) << 8));
-
-	return((x >> 16) | (x << 16));
-}
-
-/* output an empty store block */
-static int append_store_block(z_stream *zstrm, int flush)
-{
-	char store_block[5] = {0x1, 0x00, 0x00, 0xff, 0xff};
-	struct hw_ctl *hw_ctl = (struct hw_ctl *)zstrm->reserved;
-	__u32 checksum = hw_ctl->checksum;
-	__u32 isize = hw_ctl->isize;
-
-	if (flush != Z_FINISH)
-		return Z_STREAM_NO_FINSH;
-	memcpy(zstrm->next_out, store_block, 5);
-	zstrm->total_out += 5;
-	zstrm->avail_out -= 5;
-	if (hw_ctl->alg_type == HW_ZLIB) { /*if zlib, ADLER32*/
-		checksum = (__u32) cpu_to_be32(checksum);
-		memcpy(zstrm->next_out + 5, &checksum, 4);
-		zstrm->total_out += 4;
-		zstrm->avail_out -= 4;
-	} else if (hw_ctl->alg_type == HW_GZIP) {  /*if gzip, CRC32 and ISIZE*/
-		checksum = ~checksum;
-		checksum = bit_reverse(checksum);
-		memcpy(zstrm->next_out + 5, &checksum, 4);
-		memcpy(zstrm->next_out + 9, &isize, 4);
-		zstrm->total_out += 8;
-		zstrm->avail_out -= 8;
-	} else
-		fprintf(stderr, "in append store block, wrong alg type %d.\n",
-			hw_ctl->alg_type);
-
-	return Z_STREAM_NULL;
-}
-
 static int hw_send_and_recv(z_stream *zstrm, int flush)
 {
-	struct hisi_zip_sqe *msg, *recv_msg;
+	struct hisi_zip_sqe msg, *recv_msg;
 	struct hw_ctl *hw_ctl = (struct hw_ctl *)zstrm->reserved;
-	int ret = 0;
+	int ret = 0, len, flush_type;
 	__u32 status, type;
-	__u64 stream_mode, stream_new, flush_type;
+	__u64 pa;
 
-	if (zstrm->avail_in == 0)
-		return append_store_block(zstrm, flush);
-
-	msg = calloc(1, sizeof(*msg));
-	if (!msg) {
-		fputs("alloc msg fail!\n", stderr);
-		goto msg_free;
-	}
-	hw_ctl->avail_in = zstrm->avail_in;
-	hw_ctl->avail_out = stream_chunk;
-	memcpy(hw_ctl->next_in, zstrm->next_in, zstrm->avail_in);/* need copy */
-	stream_mode = STATEFUL;
-	stream_new = hw_ctl->stream_pos;
 	flush_type = (flush == Z_FINISH) ? HZ_FINISH : HZ_SYNC_FLUSH;
-	if (hw_ctl->stream_pos == STREAM_NEW) {
-		if (hw_ctl->op_type == HW_DEFLATE) {
-			memcpy(zstrm->next_out, zlib_head, ZLIB_HEAD_SIZE);
-			hw_ctl->total_out = ZLIB_HEAD_SIZE;
-			zstrm->avail_out -= ZLIB_HEAD_SIZE;
-			zstrm->next_out += ZLIB_HEAD_SIZE;
-			zstrm->total_out += ZLIB_HEAD_SIZE;
-		} else {
-			hw_ctl->next_in_pa += ZLIB_HEAD_SIZE;
-			hw_ctl->avail_in -= ZLIB_HEAD_SIZE;
-			zstrm->total_in += ZLIB_HEAD_SIZE;
-		}
-		hw_ctl->stream_pos = STREAM_OLD;
-	}
-	msg->dw9 = hw_ctl->alg_type;
-	msg->dw7 |= ((stream_new << 2 | stream_mode << 1 |
-		    flush_type)) << STREAM_FLUSH_SHIFT;
-	msg->source_addr_l = (__u64)hw_ctl->next_in_pa & 0xffffffff;
-	msg->source_addr_h = (__u64)hw_ctl->next_in_pa >> 32;
-	msg->dest_addr_l = (__u64)hw_ctl->next_out_pa & 0xffffffff;
-	msg->dest_addr_h = (__u64)hw_ctl->next_out_pa >> 32;
-	msg->input_data_length = hw_ctl->avail_in;
-	msg->dest_avail_out = hw_ctl->avail_out;
-	msg->stream_ctx_addr_l = (__u64)hw_ctl->ctx_buf & 0xffffffff;
-	msg->stream_ctx_addr_h = (__u64)hw_ctl->ctx_buf >> 32;
-	msg->ctx_dw0 = hw_ctl->ctx_dw0;
-	msg->ctx_dw1 = hw_ctl->ctx_dw1;
-	msg->ctx_dw2 = hw_ctl->ctx_dw2;
-	msg->isize = hw_ctl->isize;
-	msg->checksum = hw_ctl->checksum;
 
-	ret = wd_send(hw_ctl->q, msg);
+	memset(&msg, 0, sizeof(msg));
+	msg.dw9 = hw_ctl->alg_type;
+	msg.dw7 = (hw_ctl->stream_pos) ? HZ_STREAM_NEW : HZ_STREAM_OLD;
+	msg.dw7 |= flush_type | HZ_STATEFUL;
+	pa = (__u64)hw_ctl->next_in - (__u64)hw_ctl->in - hw_ctl->inlen +
+	     (__u64)hw_ctl->in_pa;
+	msg.source_addr_l = pa & 0xffffffff;
+	msg.source_addr_h = pa >> 32;
+	pa = (__u64)hw_ctl->next_out - (__u64)hw_ctl->out +
+	     (__u64)hw_ctl->out_pa;
+	msg.dest_addr_l = pa & 0xffffffff;
+	msg.dest_addr_h = pa >> 32;
+	msg.input_data_length = hw_ctl->inlen;
+	msg.dest_avail_out = hw_ctl->avail_out;
+	msg.stream_ctx_addr_l = (__u64)hw_ctl->ctx_buf & 0xffffffff;
+	msg.stream_ctx_addr_h = (__u64)hw_ctl->ctx_buf >> 32;
+	msg.ctx_dw0 = hw_ctl->ctx_dw0;
+	msg.ctx_dw1 = hw_ctl->ctx_dw1;
+	msg.ctx_dw2 = hw_ctl->ctx_dw2;
+
+	ret = wd_send(hw_ctl->q, &msg);
 	if (ret == -EBUSY) {
 		usleep(1);
 		goto recv_again;
@@ -416,7 +431,7 @@ recv_again:
 	ret = wd_recv(hw_ctl->q, (void **)&recv_msg);
 	if (ret == -EIO) {
 		fputs(" wd_recv fail!\n", stderr);
-		goto msg_free;
+		goto out;
 	/* synchronous mode, if get none, then get again */
 	} else if (ret == -EAGAIN)
 		goto recv_again;
@@ -424,29 +439,53 @@ recv_again:
 	type = recv_msg->dw9 & 0xff;
 	SYS_ERR_COND(status != 0 && status != 0x0d && status != 0x13,
 		     "bad status (s=%d, t=%d)\n", status, type);
+	hw_ctl->stream_pos = STREAM_OLD;
 	hw_ctl->avail_out -= recv_msg->produced;
-	hw_ctl->total_out += recv_msg->produced;
-	hw_ctl->avail_in -= recv_msg->consumed;
+	hw_ctl->inlen -= recv_msg->consumed;
+	hw_ctl->next_out += recv_msg->produced;
+	hw_ctl->outlen += recv_msg->produced;
 	hw_ctl->ctx_dw0 = recv_msg->ctx_dw0;
 	hw_ctl->ctx_dw1 = recv_msg->ctx_dw1;
 	hw_ctl->ctx_dw2 = recv_msg->ctx_dw2;
-	hw_ctl->isize = recv_msg->isize;
-	hw_ctl->checksum = recv_msg->checksum;
-	zstrm->total_in += recv_msg->consumed;
-	zstrm->total_out += recv_msg->produced;
-	if (hw_ctl->avail_in > 0) {
-		/* zstrm->avail_out = 0; */
-		hw_ctl->next_in_pa +=  recv_msg->consumed;
+	zstrm->next_in += recv_msg->consumed;
+	if (zstrm->avail_in == 0) {
+		hw_ctl->next_in = hw_ctl->in;
+		hw_ctl->avail_in = stream_chunk;
+		hw_ctl->inlen = 0;
+		hw_ctl->empty_in = 1;
+		hw_ctl->full_in = 0;
 	}
-	if (hw_ctl->avail_in == 0)
-		hw_ctl->next_in_pa = hw_ctl->temp_in_pa;
+	if (hw_ctl->outlen > zstrm->avail_out) {
+		len = zstrm->avail_out;
+		hw_ctl->pending_out = 1;
+		hw_ctl->empty_out = 0;
+	} else {
+		len = hw_ctl->outlen;
+		hw_ctl->pending_out = 0;
+		hw_ctl->empty_out = 1;
+	}
+	memcpy(zstrm->next_out, hw_ctl->next_out - hw_ctl->outlen, len);
+	zstrm->next_out += len;
+	zstrm->avail_out -= len;
+	zstrm->total_out += len;
+	hw_ctl->outlen -= len;
+	if (hw_ctl->empty_out) {
+		hw_ctl->next_out = hw_ctl->out;
+		hw_ctl->avail_out = stream_chunk;
+	}
 
 	if (ret == 0 && flush == Z_FINISH)
 		ret = Z_STREAM_END;
 	else if (ret == 0 &&  (recv_msg->dw3 & 0x1ff) == 0x113)
 		ret = Z_STREAM_END;    /* decomp_is_end  region */
-
-msg_free:
-	free(msg);
+	if (ret == Z_STREAM_END) {
+		if (hw_ctl->pending_out) {
+			hw_ctl->stream_end = 1;
+			ret = Z_OK;
+		} else {
+			hw_ctl->stream_pos = STREAM_NEW;
+		}
+	}
+out:
 	return ret;
 }

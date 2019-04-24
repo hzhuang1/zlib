@@ -52,7 +52,15 @@ enum wd_comp_flush {
 	WD_FINISH,
 };
 
-#define STREAM_FLUSH_SHIFT	25
+#define HZ_STREAM_OLD		(0 << 27)
+#define HZ_STREAM_NEW		(1 << 27)
+#define HZ_STATELESS		(0 << 26)
+#define HZ_STATEFUL		(1 << 26)
+#define HZ_SYNC_FLUSH		(0 << 25)
+#define HZ_FINISH		(1 << 25)
+
+#define STREAM_OLD		0
+#define STREAM_NEW		1
 
 enum alg_type {
 	HW_ZLIB  = 0x02,
@@ -61,20 +69,6 @@ enum alg_type {
 enum hw_comp_op {
 	HW_DEFLATE,
 	HW_INFLATE,
-};
-enum hw_flush {
-	HZ_SYNC_FLUSH,
-	HZ_FINISH,
-};
-
-enum hw_state {
-	STATELESS,
-	STATEFUL,
-};
-
-enum hw_stream_status {
-	STREAM_OLD,
-	STREAM_NEW,
 };
 
 #endif

@@ -4,6 +4,7 @@
  */
 
 #include "gzguts.h"
+#include "wd_zlib.h"
 
 /* Local functions */
 local int gz_init OF((gz_statep));
@@ -77,6 +78,7 @@ local int gz_comp(state, flush)
     int ret, writ;
     unsigned have, put, max = ((unsigned)-1 >> 2) + 1;
     z_streamp strm = &(state->strm);
+    struct hw_ctl *hw_ctl = (struct hw_ctl *)strm->reserved;
 
     /* allocate memory if this is the first time through */
     if (state->size == 0 && gz_init(state) == -1)
@@ -130,6 +132,24 @@ local int gz_comp(state, flush)
             return -1;
         }
         have -= strm->avail_out;
+
+	if (strm->is_wd) {
+            while (strm->next_out > state->x.next) {
+                put = strm->next_out - state->x.next > (int)max ? max :
+                      (unsigned)(strm->next_out - state->x.next);
+                writ = write(state->fd, state->x.next, put);
+                if (writ < 0) {
+                    gz_error(state, Z_ERRNO, zstrerror());
+                    return -1;
+                }
+                state->x.next += writ;
+            }
+            if (strm->avail_out == 0) {
+                strm->avail_out = state->size;
+                strm->next_out = state->out;
+                state->x.next = state->out;
+            }
+	}
     } while (have);
 
     /* if that completed a deflate stream, allow another to start */
