@@ -202,6 +202,13 @@ int stream_size;
     int ret;
     struct inflate_state FAR *state;
 
+    ret = hisi_inflateInit2_(strm, DEF_WBITS, version, stream_size);
+    if (!ret) {
+	strm->is_wd = 1;
+	return Z_OK;
+    }
+    strm->is_wd = 0;
+
     if (version == Z_NULL || version[0] != ZLIB_VERSION[0] ||
         stream_size != (int)(sizeof(z_stream)))
         return Z_VERSION_ERROR;
@@ -242,14 +249,6 @@ z_streamp strm;
 const char *version;
 int stream_size;
 {
-	int ret;
-
-	ret = hisi_inflateInit2_(strm, DEF_WBITS, version, stream_size);
-	if (!ret) {
-		strm->is_wd = 1;
-		return Z_OK;
-	}
-	strm->is_wd = 0;
 	return inflateInit2_(strm, DEF_WBITS, version, stream_size);
 }
 
@@ -651,8 +650,8 @@ int flush;
     static const unsigned short order[19] = /* permutation of code lengths */
         {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
 
-	if (strm->is_wd)
-		return hisi_inflate(strm, flush);
+    if (strm->is_wd)
+	return hisi_inflate(strm, flush);
 
     if (inflateStateCheck(strm) || strm->next_out == Z_NULL ||
         (strm->next_in == Z_NULL && strm->avail_in != 0))
@@ -1291,10 +1290,11 @@ z_streamp strm;
 {
     struct inflate_state FAR *state;
 
-	if (strm->is_wd) {
-		strm->is_wd = 0;
-		return hisi_inflateEnd(strm);
-	}
+    if (strm->is_wd) {
+	strm->is_wd = 0;
+	return hisi_inflateEnd(strm);
+    }
+
     if (inflateStateCheck(strm))
         return Z_STREAM_ERROR;
     state = (struct inflate_state FAR *)strm->state;
