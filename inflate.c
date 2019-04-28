@@ -202,7 +202,7 @@ int stream_size;
     int ret;
     struct inflate_state FAR *state;
 
-    ret = hisi_inflateInit2_(strm, DEF_WBITS, version, stream_size);
+    ret = hisi_inflateInit2_(strm, windowBits, version, stream_size);
     if (!ret) {
 	strm->is_wd = 1;
 	return Z_OK;
