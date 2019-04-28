@@ -185,10 +185,12 @@ local int gz_decomp(state)
         /* get more input for inflate() */
         if (strm->avail_in == 0 && gz_avail(state) == -1)
             return -1;
-        if (strm->avail_in == 0) {
-            gz_error(state, Z_BUF_ERROR, "unexpected end of file");
-            break;
-        }
+	if (!strm->is_wd) {
+            if (strm->avail_in == 0) {
+                gz_error(state, Z_BUF_ERROR, "unexpected end of file");
+                break;
+            }
+	}
 
         /* decompress and handle errors */
         ret = inflate(strm, Z_NO_FLUSH);
