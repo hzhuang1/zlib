@@ -419,6 +419,16 @@ static int hw_send_and_recv(z_stream *zstrm, int flush)
 	msg.ctx_dw0 = hw_ctl->ctx_dw0;
 	msg.ctx_dw1 = hw_ctl->ctx_dw1;
 	msg.ctx_dw2 = hw_ctl->ctx_dw2;
+ #if 1
+ 	{
+ 		int i;
+ 		fprintf(stderr, "IN:");
+		for (i = 0; i < hw_ctl->inlen; i++) {
+			fprintf(stderr, "%x ", *((unsigned char *)hw_ctl->next_in - hw_ctl->inlen + i));
+ 		}
+ 		fprintf(stderr, "\n");
+ 	}
+#endif
 
 	ret = wd_send(hw_ctl->q, &msg);
 	if (ret == -EBUSY) {
@@ -437,6 +447,16 @@ recv_again:
 		goto recv_again;
 	status = recv_msg->dw3 & 0xff;
 	type = recv_msg->dw9 & 0xff;
+#if 1
+ 	{
+ 		int i;
+ 		fprintf(stderr, "out:");
+		for (i = 0; i < recv_msg->produced + hw_ctl->outlen; i++) {
+ 			fprintf(stderr, "%x ", *((unsigned char *)hw_ctl->out + i));
+ 		}
+ 		fprintf(stderr, "\n");
+	}
+#endif
 	SYS_ERR_COND(status != 0 && status != 0x0d && status != 0x13,
 		     "bad status (s=%d, t=%d)\n", status, type);
 	hw_ctl->stream_pos = STREAM_OLD;
