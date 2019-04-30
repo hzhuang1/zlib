@@ -15,12 +15,14 @@ struct hw_ctl {
 	unsigned pending_out : 1;	/* pending data for OUT buffer */
 	unsigned stream_pos : 1;	/* STREAM_NEW or STREAM_OLD */
 	unsigned stream_end : 1;
+	unsigned is_head : 1;
 	int alg_type;
 	int op_type;
 	int avail_in;			/* number of bytes availiable in IN buffer */
 	int avail_out;
 	int inlen;			/* data cached in IN buffer */
 	int outlen;			/* data cached in OUT buffer */
+	int headlen;
 	void *in;
 	void *out;
 	void *in_pa;

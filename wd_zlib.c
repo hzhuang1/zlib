@@ -110,6 +110,8 @@ int hisi_reset_hw_ctl(struct hw_ctl *hw_ctl)
 	hw_ctl->inlen = hw_ctl->outlen = 0;
 	hw_ctl->next_in = hw_ctl->in;
 	hw_ctl->next_out = hw_ctl->out;
+	hw_ctl->is_head = 1;
+	hw_ctl->headlen = 0;
 }
 
 static inline void hisi_load_from_stream(z_stream *zstrm, int length)
@@ -190,12 +192,8 @@ int hisi_flowctl(z_stream *zstrm, int flush)
 	/* cache data in IN buffer and wait for next operation */
 	if (!hw_ctl->full_in && (flush != Z_FINISH))
 		return Z_OK;
-	if (hw_ctl->stream_pos && (hw_ctl->op_type == HW_INFLATE)) {
-		if (hw_ctl->alg_type == HW_GZIP)
-			hw_ctl->inlen -= GZIP_HEAD_SIZE;
-		else
-			hw_ctl->inlen -= ZLIB_HEAD_SIZE;
-	}
+	if (hw_ctl->stream_pos && (hw_ctl->op_type == HW_INFLATE))
+		hw_ctl->inlen -= hw_ctl->headlen - 1;
 	if (!hw_ctl->empty_in && (flush == Z_FINISH) && hw_ctl->avail_out)
 		return hw_send_and_recv(zstrm, flush);
 	else if (hw_ctl->full_in && hw_ctl->avail_out)
