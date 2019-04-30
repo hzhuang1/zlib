@@ -203,11 +203,10 @@ int stream_size;
     struct inflate_state FAR *state;
 
     ret = hisi_inflateInit2_(strm, windowBits, version, stream_size);
-    if (!ret) {
+    if (!ret)
 	strm->is_wd = 1;
-	return Z_OK;
-    }
-    strm->is_wd = 0;
+    else
+        strm->is_wd = 0;
 
     if (version == Z_NULL || version[0] != ZLIB_VERSION[0] ||
         stream_size != (int)(sizeof(z_stream)))
@@ -650,9 +649,6 @@ int flush;
     static const unsigned short order[19] = /* permutation of code lengths */
         {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
 
-    if (strm->is_wd)
-	return hisi_inflate(strm, flush);
-
     if (inflateStateCheck(strm) || strm->next_out == Z_NULL ||
         (strm->next_in == Z_NULL && strm->avail_in != 0))
         return Z_STREAM_ERROR;
@@ -1053,14 +1049,15 @@ int flush;
         case LEN_:
             state->mode = LEN;
         case LEN:
-            if (have >= 6 && left >= 258) {
-                RESTORE();
-                inflate_fast(strm, out);
-                LOAD();
-                if (state->mode == TYPE)
-                    state->back = -1;
-                break;
-            }
+            if (!strm->is_wd)
+                if (have >= 6 && left >= 258) {
+                    RESTORE();
+                    inflate_fast(strm, out);
+                    LOAD();
+                    if (state->mode == TYPE)
+                        state->back = -1;
+                    break;
+                }
             state->back = 0;
             for (;;) {
                 here = state->lencode[BITS(state->lenbits)];
@@ -1209,20 +1206,22 @@ int flush;
             if (state->wrap) {
                 NEEDBITS(32);
                 out -= left;
-                strm->total_out += out;
-                state->total += out;
-                if ((state->wrap & 4) && out)
-                    strm->adler = state->check =
-                        UPDATE(state->check, put - out, out);
-                out = left;
-                if ((state->wrap & 4) && (
+                if (!strm->is_wd) {
+                    strm->total_out += out;
+                    state->total += out;
+                    if ((state->wrap & 4) && out)
+                        strm->adler = state->check =
+                            UPDATE(state->check, put - out, out);
+                     out = left;
+                     if ((state->wrap & 4) && (
 #ifdef GUNZIP
-                     state->flags ? hold :
+                         state->flags ? hold :
 #endif
-                     ZSWAP32(hold)) != state->check) {
-                    strm->msg = (char *)"incorrect data check";
-                    state->mode = BAD;
-                    break;
+                         ZSWAP32(hold)) != state->check) {
+                        strm->msg = (char *)"incorrect data check";
+                        state->mode = BAD;
+                        break;
+                    }
                 }
                 INITBITS();
                 Tracev((stderr, "inflate:   check matches trailer\n"));
@@ -1262,26 +1261,35 @@ int flush;
        Note: a memory error from inflate() is non-recoverable.
      */
   inf_leave:
-    RESTORE();
-    if (state->wsize || (out != strm->avail_out && state->mode < BAD &&
-            (state->mode < CHECK || flush != Z_FINISH)))
-        if (updatewindow(strm, strm->next_out, out - strm->avail_out)) {
-            state->mode = MEM;
-            return Z_MEM_ERROR;
-        }
-    in -= strm->avail_in;
-    out -= strm->avail_out;
-    strm->total_in += in;
-    strm->total_out += out;
-    state->total += out;
-    if ((state->wrap & 4) && out)
-        strm->adler = state->check =
-            UPDATE(state->check, strm->next_out - out, out);
-    strm->data_type = (int)state->bits + (state->last ? 64 : 0) +
-                      (state->mode == TYPE ? 128 : 0) +
-                      (state->mode == LEN_ || state->mode == COPY_ ? 256 : 0);
-    if (((in == 0 && out == 0) || flush == Z_FINISH) && ret == Z_OK)
-        ret = Z_BUF_ERROR;
+    if (strm->is_wd) {
+        if (state->mode == DONE)
+            flush = Z_FINISH;
+        ret = hisi_inflate(strm, flush);
+        state->hold = hold;
+        state->bits = bits;
+        return ret;
+    } else {
+        RESTORE();
+        if (state->wsize || (out != strm->avail_out && state->mode < BAD &&
+                (state->mode < CHECK || flush != Z_FINISH)))
+            if (updatewindow(strm, strm->next_out, out - strm->avail_out)) {
+                state->mode = MEM;
+                return Z_MEM_ERROR;
+            }
+        in -= strm->avail_in;
+        out -= strm->avail_out;
+        strm->total_in += in;
+        strm->total_out += out;
+        state->total += out;
+        if ((state->wrap & 4) && out)
+            strm->adler = state->check =
+                UPDATE(state->check, strm->next_out - out, out);
+        strm->data_type = (int)state->bits + (state->last ? 64 : 0) +
+                          (state->mode == TYPE ? 128 : 0) +
+                          (state->mode == LEN_ || state->mode == COPY_ ? 256 : 0);
+        if (((in == 0 && out == 0) || flush == Z_FINISH) && ret == Z_OK)
+            ret = Z_BUF_ERROR;
+    }
     return ret;
 }
 
@@ -1292,9 +1300,8 @@ z_streamp strm;
 
     if (strm->is_wd) {
 	strm->is_wd = 0;
-	return hisi_inflateEnd(strm);
+	hisi_inflateEnd(strm);
     }
-
     if (inflateStateCheck(strm))
         return Z_STREAM_ERROR;
     state = (struct inflate_state FAR *)strm->state;
