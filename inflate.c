@@ -513,6 +513,7 @@ unsigned copy;
 #define PULLBYTE() \
     do { \
         if (have == 0) goto inf_leave; \
+        if (strm->is_wd && hw_ctl->is_head) hw_ctl->headlen++; \
         have--; \
         hold += (unsigned long)(*next++) << bits; \
         bits += 8; \
@@ -648,6 +649,10 @@ int flush;
 #endif
     static const unsigned short order[19] = /* permutation of code lengths */
         {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+    struct hw_ctl *hw_ctl;
+
+    if (strm->is_wd)
+        hw_ctl = (struct hw_ctl *)strm->reserved;
 
     if (inflateStateCheck(strm) || strm->next_out == Z_NULL ||
         (strm->next_in == Z_NULL && strm->avail_in != 0))
@@ -1049,6 +1054,8 @@ int flush;
         case LEN_:
             state->mode = LEN;
         case LEN:
+            if (strm->is_wd)
+                hw_ctl->is_head = 0;
             if (!strm->is_wd)
                 if (have >= 6 && left >= 258) {
                     RESTORE();
