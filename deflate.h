@@ -278,7 +278,11 @@ typedef struct internal_state {
 /* Output a byte on the stream.
  * IN assertion: there is enough room in pending_buf.
  */
-#define put_byte(s, c) {s->pending_buf[s->pending++] = (Bytef)(c);}
+#define put_byte(s, c) do {                                           \
+                           if (s->strm->is_wd && s->strm->is_head)    \
+                               s->strm->headlen++;                    \
+                           s->pending_buf[s->pending++] = (Bytef)(c); \
+                       } while (0)
 
 
 #define MIN_LOOKAHEAD (MAX_MATCH+MIN_MATCH+1)

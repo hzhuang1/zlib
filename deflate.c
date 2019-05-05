@@ -262,9 +262,11 @@ int ZEXPORT deflateInit2_(strm, level, method, windowBits, memLevel, strategy,
 			 version, stream_size);
     if (!ret) {
 	strm->is_wd = 1;
-	return Z_OK;
+        strm->is_head = 1;
+        strm->headlen = 0;
+    } else {
+        strm->is_wd = 0;
     }
-    strm->is_wd = 0;
 
     /* We overlay pending_buf and d_buf+l_buf. This works since the average
      * output size for (length,distance) codes is <= 24 bits.
@@ -521,8 +523,10 @@ int ZEXPORT deflateReset (strm)
     int ret;
 
     ret = deflateResetKeep(strm);
-    if (ret == Z_OK)
-        lm_init(strm->state);
+    if (!strm->is_wd) {
+        if (ret == Z_OK)
+            lm_init(strm->state);
+    }
     return ret;
 }
 
@@ -779,8 +783,7 @@ int ZEXPORT deflate (strm, flush)
 {
     int old_flush; /* value of flush param for previous deflate call */
     deflate_state *s;
-	if (strm->is_wd)
-		return hisi_deflate(strm, flush);
+    int ret;
 
     if (deflateStateCheck(strm) || flush > Z_BLOCK || flush < 0) {
         return Z_STREAM_ERROR;
@@ -1006,6 +1009,20 @@ int ZEXPORT deflate (strm, flush)
     }
 #endif
 
+    if (strm->is_wd) {
+        if (s->status >= BUSY_STATE) {
+            if (s->pending != 0) {
+                flush_pending(strm);
+                return Z_OK;
+            } else
+                strm->is_head = 0;
+        }
+	ret = hisi_deflate(strm, flush);
+        if (ret == Z_STREAM_END)
+            s->status= FINISH_STATE;
+        return ret;
+    }
+
     /* Start a new block or continue the current one.
      */
     if (strm->avail_in != 0 || s->lookahead != 0 ||
@@ -1093,10 +1110,10 @@ int ZEXPORT deflateEnd (strm)
 {
     int status;
 
-	if (strm->is_wd) {
-		strm->is_wd = 0;
-		return hisi_deflateEnd(strm);
-	}
+    if (strm->is_wd) {
+    	strm->is_wd = 0;
+    	hisi_deflateEnd(strm);
+    }
 
     if (deflateStateCheck(strm)) return Z_STREAM_ERROR;
 
