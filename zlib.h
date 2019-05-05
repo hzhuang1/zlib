@@ -104,6 +104,8 @@ typedef struct z_stream_s {
     uLong   adler;      /* Adler-32 or CRC-32 value of the uncompressed data */
     void   *reserved;   /* reserved for future use */
     int    is_wd;
+    int    is_head;
+    uInt   headlen;
 } z_stream;
 
 typedef z_stream FAR *z_streamp;
