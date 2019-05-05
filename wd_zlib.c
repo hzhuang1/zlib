@@ -110,8 +110,6 @@ int hisi_reset_hw_ctl(struct hw_ctl *hw_ctl)
 	hw_ctl->inlen = hw_ctl->outlen = 0;
 	hw_ctl->next_in = hw_ctl->in;
 	hw_ctl->next_out = hw_ctl->out;
-	hw_ctl->is_head = 1;
-	hw_ctl->headlen = 0;
 }
 
 static inline void hisi_load_from_stream(z_stream *zstrm, int length)
@@ -131,10 +129,6 @@ int hisi_flowctl(z_stream *zstrm, int flush)
 	struct hw_ctl *hw_ctl = (struct hw_ctl *)zstrm->reserved;
 	int len, offset;
 
-	if (hw_ctl->stream_pos && hw_ctl->empty_in) {
-		zstrm->total_in = 0;
-		zstrm->total_out = 0;
-	}
 	if (hw_ctl->pending_out && hw_ctl->outlen && zstrm->avail_out) {
 		/* need move data out of OUT buffer */
 		if (hw_ctl->outlen > zstrm->avail_out) {
@@ -192,8 +186,6 @@ int hisi_flowctl(z_stream *zstrm, int flush)
 	/* cache data in IN buffer and wait for next operation */
 	if (!hw_ctl->full_in && (flush != Z_FINISH))
 		return Z_OK;
-	if (hw_ctl->stream_pos && (hw_ctl->op_type == HW_INFLATE))
-		hw_ctl->inlen -= hw_ctl->headlen - 1;
 	if (!hw_ctl->empty_in && (flush == Z_FINISH) && hw_ctl->avail_out)
 		return hw_send_and_recv(zstrm, flush);
 	else if (hw_ctl->full_in && hw_ctl->avail_out)
@@ -335,29 +327,6 @@ static int hw_init(z_stream *zstrm, int alg_type, int comp_optype)
 
 	zstrm->reserved = hw_ctl;
 
-	if (hw_ctl->op_type == HW_DEFLATE) {
-		if (hw_ctl->alg_type == HW_GZIP) {
-			memcpy(hw_ctl->next_out,
-			       gzip_head,
-			       GZIP_HEAD_SIZE);
-			hw_ctl->next_out += GZIP_HEAD_SIZE;
-			hw_ctl->avail_out -= GZIP_HEAD_SIZE;
-			hw_ctl->outlen += GZIP_HEAD_SIZE;
-		} else {
-			memcpy(hw_ctl->next_out,
-			       zlib_head,
-			       ZLIB_HEAD_SIZE);
-			hw_ctl->next_out += ZLIB_HEAD_SIZE;
-			hw_ctl->avail_out -= ZLIB_HEAD_SIZE;
-			hw_ctl->outlen += ZLIB_HEAD_SIZE;
-		}
-		hw_ctl->pending_out = 0;
-		hw_ctl->empty_out = 0;
-	} else {
-		hw_ctl->full_in = 0;
-		hw_ctl->empty_in = 0;
-	}
-
 	return Z_OK;
 buf_free:
 #ifdef CONFIG_IOMMU_SVA
@@ -395,6 +364,9 @@ static int hw_send_and_recv(z_stream *zstrm, int flush)
 	int ret = 0, len, flush_type;
 	__u32 status, type;
 	__u64 pa;
+
+	if (hw_ctl->stream_pos && (hw_ctl->op_type == HW_INFLATE))
+		hw_ctl->inlen -= zstrm->headlen;
 
 	flush_type = (flush == Z_FINISH) ? HZ_FINISH : HZ_SYNC_FLUSH;
 
