@@ -203,10 +203,13 @@ int stream_size;
     struct inflate_state FAR *state;
 
     ret = hisi_inflateInit2_(strm, windowBits, version, stream_size);
-    if (!ret)
+    if (!ret) {
 	strm->is_wd = 1;
-    else
+        strm->is_head = 1;
+        strm->headlen = 0;
+    } else {
         strm->is_wd = 0;
+    }
 
     if (version == Z_NULL || version[0] != ZLIB_VERSION[0] ||
         stream_size != (int)(sizeof(z_stream)))
@@ -513,7 +516,7 @@ unsigned copy;
 #define PULLBYTE() \
     do { \
         if (have == 0) goto inf_leave; \
-        if (strm->is_wd && hw_ctl->is_head) hw_ctl->headlen++; \
+        if (strm->is_wd && strm->is_head) strm->headlen++; \
         have--; \
         hold += (unsigned long)(*next++) << bits; \
         bits += 8; \
@@ -1054,8 +1057,12 @@ int flush;
         case LEN_:
             state->mode = LEN;
         case LEN:
-            if (strm->is_wd)
-                hw_ctl->is_head = 0;
+            if (strm->is_wd) {
+                /* just remove the redundant count */
+                if (strm->is_head && strm->headlen)
+                    strm->headlen--;
+                strm->is_head = 0;
+            }
             if (!strm->is_wd)
                 if (have >= 6 && left >= 258) {
                     RESTORE();
