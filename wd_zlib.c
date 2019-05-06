@@ -191,7 +191,7 @@ int hisi_flowctl(z_stream *zstrm, int flush)
 	else if (hw_ctl->full_in && hw_ctl->avail_out)
 		return hw_send_and_recv(zstrm, flush);
 	else if (hw_ctl->empty_in && hw_ctl->empty_out && (flush == Z_FINISH))
-		return Z_OK;
+		return Z_STREAM_END;
 	fprintf(stderr, "wrong case in hisi_flowctl()\n");
 	return Z_ERRNO;
 }
