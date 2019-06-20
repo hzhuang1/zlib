@@ -29,7 +29,19 @@ typedef int bool;
 #endif
 
 #ifndef WD_ERR
+#ifndef WITH_LOG_FILE
 #define WD_ERR(format, args...) fprintf(stderr, format, ##args)
+#else
+extern FILE *flog_fd;
+#define WD_ERR(format, args...)				\
+	if (!flog_fd)					\
+		flog_fd = fopen(WITH_LOG_FILE, "a+");	\
+	if (flog_fd)					\
+		fprintf(flog_fd, format, ##args);	\
+	else						\
+		fprintf(stderr, "log %s not exists!",	\
+			WITH_LOG_FILE);
+#endif
 #endif
 
 #ifdef DEBUG_LOG
@@ -38,7 +50,6 @@ typedef int bool;
 #define dbg(msg, ...)
 #endif
 
-#if 0
 #if defined(__AARCH64_CMODEL_SMALL__) && __AARCH64_CMODEL_SMALL__
 
 #define dsb(opt)	asm volatile("dsb " #opt : : : "memory")
@@ -57,7 +68,6 @@ typedef int bool;
 
 #endif
 
-
 static inline void wd_reg_write(void *reg_addr, uint32_t value)
 {
 	*((volatile uint32_t *)reg_addr) = value;
@@ -73,8 +83,6 @@ static inline uint32_t wd_reg_read(void *reg_addr)
 
 	return temp;
 }
-
-#endif
 
 #define WD_CAPA_PRIV_DATA_SIZE	64
 
@@ -109,7 +117,7 @@ struct wd_queue {
 	void *ss_va;
 	void *ss_pa;
 	int dev_flags;
-	unsigned long qfrs_pg_start[UACCE_QFRT_MAX];
+	unsigned long qfrs_offset[UACCE_QFRT_MAX];
 };
 
 static inline void *wd_get_pa_from_va(struct wd_queue *q, void *va)
@@ -131,5 +139,4 @@ extern int wd_recv_sync(struct wd_queue *q, void **resp, __u16 ms);
 extern void *wd_reserve_memory(struct wd_queue *q, size_t size);
 extern int wd_share_reserved_memory(struct wd_queue *q,
 				    struct wd_queue *target_q);
-
 #endif
