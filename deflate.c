@@ -257,9 +257,13 @@ int ZEXPORT deflateInit2_(strm, level, method, windowBits, memLevel, strategy,
 
     int ret;
 
+#if 0
     ret = hisi_deflateInit2_(strm, level, Z_DEFLATED, windowBits,
 			 DEF_MEM_LEVEL, Z_DEFAULT_STRATEGY,
 			 version, stream_size);
+#else
+    ret = 1;
+#endif
     if (!ret) {
 	strm->is_wd = 1;
         strm->is_head = 1;

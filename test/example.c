@@ -255,6 +255,8 @@ void test_inflate(compr, comprLen, uncompr, uncomprLen)
     err = inflateInit(&d_stream);
     CHECK_ERR(err, "inflateInit");
 
+fprintf(stderr, "debug: d_stream.total_out:%d, uncomprLen:%d, d_stream.total_in:%d, comprLen:%d\n",
+	d_stream.total_out, uncomprLen, d_stream.total_in, comprLen);
     while (d_stream.total_out < uncomprLen && d_stream.total_in < comprLen) {
         d_stream.avail_in = d_stream.avail_out = 1; /* force small buffers */
         err = inflate(&d_stream, Z_NO_FLUSH);
@@ -584,6 +586,7 @@ int main(argc, argv)
 
     test_deflate(compr, comprLen);
     test_inflate(compr, comprLen, uncompr, uncomprLen);
+return 0;
 
     test_large_deflate(compr, comprLen, uncompr, uncomprLen);
     test_large_inflate(compr, comprLen, uncompr, uncomprLen);

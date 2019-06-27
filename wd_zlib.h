@@ -45,5 +45,6 @@ extern int hisi_inflateInit2_(z_stream *zstrm, int windowBits,
 		     const char *version, int stream_size);
 extern int hisi_inflate(z_stream *zstrm, int flush);
 extern int hisi_inflateEnd(z_stream *zstrm);
+//extern int hisi_updatewindow(z_stream *zstrm, const char *end, unsigned copy);
 
 #endif

@@ -202,7 +202,11 @@ int stream_size;
     int ret;
     struct inflate_state FAR *state;
 
+#if 1
     ret = hisi_inflateInit2_(strm, windowBits, version, stream_size);
+#else
+    ret = 1;
+#endif
     if (!ret) {
 	strm->is_wd = 1;
         strm->is_head = 1;
@@ -428,6 +432,7 @@ unsigned copy;
         state->whave = 0;
     }
 
+fprintf(stderr, "#%s, %d, state->whave:%d, copy:%d, state->wsize:%d\n", __func__, __LINE__, state->whave, copy, state->wsize);
     /* copy state->wsize or less output bytes into the circular window */
     if (copy >= state->wsize) {
         zmemcpy(state->window, end - state->wsize, state->wsize);
@@ -450,6 +455,49 @@ unsigned copy;
             if (state->whave < state->wsize) state->whave += dist;
         }
     }
+fprintf(stderr, "#%s, %d, state->whave:%d, copy:%d\n", __func__, __LINE__, state->whave, copy);
+    return 0;
+}
+
+int hisi_update_window(z_stream *strm, const char *end, unsigned copy)
+{
+    struct inflate_state FAR *state;
+    unsigned dist;
+
+    state = (struct inflate_state FAR *)strm->state;
+
+    /* if window not in use yet, initialize */
+    if (state->wsize == 0) {
+        state->wsize = 1U << state->wbits;
+        state->wnext = 0;
+        state->whave = 0;
+    }
+
+//if (state->whave)
+	fprintf(stderr, "#%s, %d, state->whave:%d, copy:%d, state->wsize:%d\n", __func__, __LINE__, state->whave, copy, state->wsize);
+    /* copy state->wsize or less output bytes into the circular window */
+    if (copy >= state->wsize) {
+        state->wnext = 0;
+        state->whave = state->wsize;
+    }
+    else {
+        dist = state->wsize - state->wnext;
+        if (dist > copy) dist = copy;
+        //zmemcpy(state->window + state->wnext, end - copy, dist);
+        copy -= dist;
+        if (copy) {
+            //zmemcpy(state->window, end - copy, copy);
+            state->wnext = copy;
+            state->whave = state->wsize;
+        }
+        else {
+            state->wnext += dist;
+            if (state->wnext == state->wsize) state->wnext = 0;
+            if (state->whave < state->wsize) state->whave += dist;
+        }
+    }
+if (state->whave)
+	fprintf(stderr, "#%s, %d, state->whave:%d, copy:%d\n", __func__, __LINE__, state->whave, copy);
     return 0;
 }
 
@@ -667,6 +715,7 @@ int flush;
     in = have;
     out = left;
     ret = Z_OK;
+fprintf(stderr, "#%s, %d, out:%d\n", __func__, __LINE__, out);
     for (;;)
         switch (state->mode) {
         case HEAD:
@@ -965,6 +1014,7 @@ int flush;
                                 &(state->lenbits), state->work);
             if (ret) {
                 strm->msg = (char *)"invalid code lengths set";
+fprintf(stderr, "#%s, %d, invalid code lengths set\n", __func__, __LINE__);
                 state->mode = BAD;
                 break;
             }
@@ -988,6 +1038,7 @@ int flush;
                         DROPBITS(here.bits);
                         if (state->have == 0) {
                             strm->msg = (char *)"invalid bit length repeat";
+fprintf(stderr, "#%s, %d, invalid bit length repeat\n", __func__, __LINE__);
                             state->mode = BAD;
                             break;
                         }
@@ -1011,6 +1062,7 @@ int flush;
                     }
                     if (state->have + copy > state->nlen + state->ndist) {
                         strm->msg = (char *)"invalid bit length repeat";
+fprintf(stderr, "#%s, %d, invalid bit length repeat\n", __func__, __LINE__);
                         state->mode = BAD;
                         break;
                     }
@@ -1020,11 +1072,16 @@ int flush;
             }
 
             /* handle error breaks in while */
-            if (state->mode == BAD) break;
+            if (state->mode == BAD)
+	{
+fprintf(stderr, "#%s, %d\n", __func__, __LINE__);
+		break;
+	}
 
             /* check for end-of-block code (better have one) */
             if (state->lens[256] == 0) {
                 strm->msg = (char *)"invalid code -- missing end-of-block";
+fprintf(stderr, "#%s, %d, invalid code --missing end-of-block\n", __func__, __LINE__);
                 state->mode = BAD;
                 break;
             }
@@ -1040,6 +1097,7 @@ int flush;
             if (ret) {
                 strm->msg = (char *)"invalid literal/lengths set";
                 state->mode = BAD;
+fprintf(stderr, "#%s, %d, invalid literal lengths set\n", __func__, __LINE__);
                 break;
             }
             state->distcode = (const code FAR *)(state->next);
@@ -1048,15 +1106,21 @@ int flush;
                             &(state->next), &(state->distbits), state->work);
             if (ret) {
                 strm->msg = (char *)"invalid distances set";
+fprintf(stderr, "#%s, %d, invalid distances set\n", __func__, __LINE__);
                 state->mode = BAD;
                 break;
             }
             Tracev((stderr, "inflate:       codes ok\n"));
             state->mode = LEN_;
-            if (flush == Z_TREES) goto inf_leave;
+            if (flush == Z_TREES) 
+	{
+fprintf(stderr, "#%s, %d, flush equals to Z_TREES\n", __func__, __LINE__);
+	    goto inf_leave;
+	}
         case LEN_:
             state->mode = LEN;
         case LEN:
+fprintf(stderr, "#%s, %d, state->mode: LEN\n", __func__, __LINE__);
             if (strm->is_wd) {
                 /* just remove the redundant count */
                 if (strm->is_head && strm->headlen)
@@ -1078,6 +1142,7 @@ int flush;
                 if ((unsigned)(here.bits) <= bits) break;
                 PULLBYTE();
             }
+fprintf(stderr, "#%s, %d, have:%d, current :0x%x, next: 0x%x, here:0x%x, here.op:0x%x\n", __func__, __LINE__, have, *(next - 1), *next, here, here.op);
             if (here.op && (here.op & 0xf0) == 0) {
                 last = here;
                 for (;;) {
@@ -1099,17 +1164,21 @@ int flush;
                 state->mode = LIT;
                 break;
             }
+fprintf(stderr, "#%s, %d, have:%d, current :0x%x, next: 0x%x, here:0x%x, here.op:0x%x\n", __func__, __LINE__, have, *(next - 1), *next, here, here.op);
             if (here.op & 32) {
                 Tracevv((stderr, "inflate:         end of block\n"));
                 state->back = -1;
                 state->mode = TYPE;
+fprintf(stderr, "#%s, %d, inflate: end of block\n", __func__, __LINE__);
                 break;
             }
             if (here.op & 64) {
                 strm->msg = (char *)"invalid literal/length code";
+fprintf(stderr, "#%s, %d, invalid literal length code\n", __func__, __LINE__);
                 state->mode = BAD;
                 break;
             }
+fprintf(stderr, "#%s, %d, state->mode: LEN, finish\n", __func__, __LINE__);
             state->extra = (unsigned)(here.op) & 15;
             state->mode = LENEXT;
         case LENEXT:
@@ -1143,6 +1212,7 @@ int flush;
             state->back += here.bits;
             if (here.op & 64) {
                 strm->msg = (char *)"invalid distance code";
+fprintf(stderr, "#%s, %d, invalid distance code\n", __func__, __LINE__);
                 state->mode = BAD;
                 break;
             }
@@ -1159,6 +1229,7 @@ int flush;
 #ifdef INFLATE_STRICT
             if (state->offset > state->dmax) {
                 strm->msg = (char *)"invalid distance too far back";
+fprintf(stderr, "#%s, %d, invalid distance too far back\n", __func__, __LINE__);
                 state->mode = BAD;
                 break;
             }
@@ -1166,10 +1237,13 @@ int flush;
             Tracevv((stderr, "inflate:         distance %u\n", state->offset));
             state->mode = MATCH;
         case MATCH:
+fprintf(stderr, "#%s, %d, state->mode MATCH, left:%d, state->length:%d, out:%d, left:%d, strm->avail_out:%d\n", __func__, __LINE__, left, state->length, out, left, strm->avail_out);
             if (left == 0) goto inf_leave;
             copy = out - left;
+fprintf(stderr, "#%s, %d, out:%d, left:%d, copy:%d, state->offset:%d\n", __func__, __LINE__, out, left, copy, state->offset);
             if (state->offset > copy) {         /* copy from window */
                 copy = state->offset - copy;
+fprintf(stderr, "#%s, %d, copy:%d, state->whave:%d\n", __func__, __LINE__, copy, state->whave);
                 if (copy > state->whave) {
                     if (state->sane) {
                         strm->msg = (char *)"invalid distance too far back";
@@ -1209,6 +1283,7 @@ int flush;
                 *put++ = *from++;
             } while (--copy);
             if (state->length == 0) state->mode = LEN;
+fprintf(stderr, "#%s, %d, state->length:%d, state->mode:%d\n", __func__, __LINE__, state->length, state->mode);
             break;
         case LIT:
             if (left == 0) goto inf_leave;
@@ -1233,6 +1308,7 @@ int flush;
 #endif
                          ZSWAP32(hold)) != state->check) {
                         strm->msg = (char *)"incorrect data check";
+fprintf(stderr, "#%s, %d, incorrect data check\n", __func__, __LINE__);
                         state->mode = BAD;
                         break;
                     }
@@ -1278,11 +1354,14 @@ int flush;
     if (strm->is_wd) {
         if (state->mode == DONE)
             flush = Z_FINISH;
+fprintf(stderr, "inf_leave: state->mode:%d, flush:%d, out:%d, strm->avail_out:%d, copy:%d\n", state->mode, flush, out, strm->avail_out, out - strm->avail_out);
+	hisi_update_window(strm, strm->next_out, out - strm->avail_out);
         ret = hisi_inflate(strm, flush);
         state->hold = hold;
         state->bits = bits;
         return ret;
     } else {
+fprintf(stderr, "inf_leave: state->mode:%d, flush:%d, out:%d, strm->avail_out:%d, copy:%d\n", state->mode, flush, out, strm->avail_out, out - strm->avail_out);
         RESTORE();
         if (state->wsize || (out != strm->avail_out && state->mode < BAD &&
                 (state->mode < CHECK || flush != Z_FINISH)))

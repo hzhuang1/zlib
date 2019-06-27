@@ -130,6 +130,10 @@ int hisi_flowctl(z_stream *zstrm, int flush)
 	int len, offset;
 
 	if (hw_ctl->pending_out && hw_ctl->outlen && zstrm->avail_out) {
+if (hw_ctl->pending_out) {
+	fprintf(stderr, "hw_ctl->pending_out:%d, hw_ctl->outlen:%d, zstrm->avail_out:%d\n",
+		hw_ctl->pending_out, hw_ctl->outlen, zstrm->avail_out);
+}
 		/* need move data out of OUT buffer */
 		if (hw_ctl->outlen > zstrm->avail_out) {
 			len = zstrm->avail_out;
@@ -152,6 +156,10 @@ int hisi_flowctl(z_stream *zstrm, int flush)
 			return Z_STREAM_END;
 		}
 	}
+if (hw_ctl->inlen) {
+	fprintf(stderr, "zstrm->avail_in:%d, hw_ctl->inlen:%d, flush:%d\n",
+		zstrm->avail_in, hw_ctl->inlen, flush);
+}
 	if (!zstrm->avail_in && hw_ctl->inlen && (flush != Z_FINISH)) {
 		/* it must be the last frame */
 		flush = Z_FINISH;
@@ -392,7 +400,7 @@ static int hw_send_and_recv(z_stream *zstrm, int flush)
  #if 1
  	{
  		int i;
- 		fprintf(stderr, "IN:");
+ 		fprintf(stderr, "IN[%d]:", hw_ctl->inlen);
 		for (i = 0; i < hw_ctl->inlen; i++) {
 			fprintf(stderr, "%x ", *((unsigned char *)hw_ctl->next_in - hw_ctl->inlen + i));
  		}
@@ -420,7 +428,7 @@ recv_again:
 #if 1
  	{
  		int i;
- 		fprintf(stderr, "out:");
+ 		fprintf(stderr, "out[%d]:", recv_msg->produced + hw_ctl->outlen);
 		for (i = 0; i < recv_msg->produced + hw_ctl->outlen; i++) {
  			fprintf(stderr, "%x ", *((unsigned char *)hw_ctl->out + i));
  		}
