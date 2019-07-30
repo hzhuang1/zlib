@@ -569,6 +569,9 @@ if(WITH_OPTIM)
         elseif(WITH_ACLE)
             set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ACLEFLAG}")
         endif()
+	if(WITH_WD_DEFLATE OR WITH_WD_INFLATE)
+            set(ZLIB_ARCH_SRCS ${ZLIB_ARCH_SRCS} ${ARCHDIR}/wd_common.c)
+        endif()
 	if(WITH_WD_DEFLATE)
 	    add_definitions(-DWD_DEFLATE)
 	    set(ZLIB_ARCH_SRCS ${ZLIB_ARCH_SRCS} ${ARCHDIR}/wd_deflate.c)
@@ -784,6 +787,16 @@ if(UNIX)
     set_target_properties(zlib zlibstatic PROPERTIES OUTPUT_NAME z${SUFFIX})
     if(NOT APPLE)
         set_target_properties(zlib PROPERTIES LINK_FLAGS "-Wl,--version-script,\"${CMAKE_CURRENT_SOURCE_DIR}/${LIBNAME2}.map\"")
+    endif()
+
+    if(WITH_WD_DEFLATE OR WITH_WD_INFLATE)
+        find_library(WD_LIBRARY
+                NAMES wd
+                HINTS ${CMAKE_CURRENT_SOURCE_DIR}
+                PATHS ${CMAKE_CURRENT_SOURCE_DIR})
+        if(WD_LIBRARY)
+            target_link_libraries(zlib wd)
+        endif()
     endif()
 elseif(MSYS)
     # Suppress version number from shared library name

@@ -7,9 +7,12 @@ int ZLIB_INTERNAL wd_deflate_params(PREFIX3(streamp) strm,
                                     int level,
                                     int strategy
                                     );
+void ZLIB_INTERNAL wd_deflate_reset(PREFIX3(streamp) strm, uInt size);
 
-/* Invoked for each deflate() call. Useful for plugging arch-specific deflation code. */
 #define DEFLATE_HOOK wd_deflate
+
+#define DEFLATE_RESET_KEEP_HOOK(strm) \
+    wd_deflate_reset((strm), sizeof(deflate_state))
 
 #define DEFLATE_PARAMS_HOOK(strm, level, strategy)      \
     do {                                                \
@@ -31,8 +34,6 @@ int ZLIB_INTERNAL wd_deflate_params(PREFIX3(streamp) strm,
 #  define DEFLATE_SET_DICTIONARY_HOOK(strm, dict, dict_len) do {} while (0)
 /* Invoked at the beginning of deflateGetDictionary(). Useful for adjusting arch-specific window data. */
 #  define DEFLATE_GET_DICTIONARY_HOOK(strm, dict, dict_len) do {} while (0)
-/* Invoked at the end of deflateResetKeep(). Useful for initializing arch-specific extension blocks. */
-#  define DEFLATE_RESET_KEEP_HOOK(strm) do {} while (0)
 /* Adjusts the upper bound on compressed data length based on compression parameters and uncompressed data length.
  * Useful when arch-specific deflation code behaves differently than regular zlib-ng algorithms. */
 #  define DEFLATE_BOUND_ADJUST_COMPLEN(strm, complen, sourceLen) do {} while (0)
