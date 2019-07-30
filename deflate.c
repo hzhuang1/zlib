@@ -68,6 +68,8 @@ const char zng_deflate_copyright[] = " deflate 1.2.11.f Copyright 1995-2016 Jean
  */
 #ifdef S390_DFLTCC_DEFLATE
 #  include "arch/s390/dfltcc_deflate.h"
+#elif defined(WD_DEFLATE)
+#  include "arch/arm/wd_deflate.h"
 #else
 /* Memory management for the deflate state. Useful for allocating arch-specific extension blocks. */
 #  define ZALLOC_STATE(strm, items, size) ZALLOC(strm, items, size)
