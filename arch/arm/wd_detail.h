@@ -37,7 +37,10 @@ struct hw_ctl {
 };
 #endif
 
-#define ASIZE                          (2*512*1024)        /* 512KB */
+#define ASIZE                          (2 * 512 * 1024)    /* 512KB */
+#define HW_CTX_SIZE                    (512 * 1024)
+#define STREAM_CHUNK                   (512 * 1024)
+#define MIN_STREAM_CHUNK               512
 
 struct hisi_param {
     int alg_type;
@@ -51,6 +54,14 @@ struct hisi_param {
     int ctx_dw1;
     int ctx_dw2;
     void *ss_buf;
+
+    int avail_in;
+    int avail_out;
+    int inlen;
+    int outlen;
+    void *next_in;
+    void *next_out;
+
     unsigned hw_avail : 1;             /* HW accelerator is available */
     unsigned empty_in : 1;             /* IN buffer is empty */
     unsigned empty_out : 1;            /* OUT buffer is empty */
